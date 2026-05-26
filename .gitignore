@@ -4,6 +4,7 @@ results/
 .DS_Store
 
 /work*
-/nextflow*
+/nextflow
+/nextflow.log*
 /.nextflow*
 /analysis*
