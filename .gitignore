@@ -1,0 +1,9 @@
+# Data files
+data/
+results/
+.DS_Store
+
+/work*
+/nextflow*
+/.nextflow*
+/analysis*

@@ -1,0 +1,18 @@
+
+
+# Directories that get bind-mounted into every Docker container (refs, fastqs).
+bind_mounts:
+  - '/Users/cristian.soitu/Data'
+
+alignment:
+  fastq_dir: '/Users/cristian.soitu/Data/260410_VH02427_20_AAHYTYLM5/fastq/'
+  recoded_ref: '/Users/cristian.soitu/Data/references/mouse/MDS42_r24-30_27B_SC.fasta'
+  wt_ref: '/Users/cristian.soitu/Data/references/mouse/MDS42_r24-30_27B_SC_wt.fasta'
+  outdir: '/Users/cristian.soitu/Data/260410_VH02427_20_AAHYTYLM5/results/'
+  genbank: '/Users/cristian.soitu/Data/references/mouse/MDS42_r24-30_27B_SC_recoded.gbk'
+  threads: 8
+
+
+qc:
+  min_reads: 1000
+  min_quality: 20

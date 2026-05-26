@@ -1,0 +1,6 @@
+[submodule "modules/fastp"]
+	path = modules/fastp
+	url = https://github.com/EIT-GBI/nf-mod-fastp.git
+[submodule "modules/bedtools"]
+	path = modules/bedtools
+	url = https://github.com/EIT-GBI/nf-mod-bedtools.git
