@@ -15,9 +15,9 @@ ENV PATH=/opt/conda/bin:$PATH
 # Python deps for the in-house scripts in scripts/.
 # Kept narrow on purpose — extend if a new script imports something else.
 RUN pip install --no-cache-dir \
-        pysam==0.23.3 \
-        anndata>=0.10 \
-        pandas>=2.2,<3.0 \
+        'pysam==0.23.3' \
+        'anndata>=0.10' \
+        'pandas>=2.2,<3.0' \
         numpy \
         matplotlib \
         seaborn \
