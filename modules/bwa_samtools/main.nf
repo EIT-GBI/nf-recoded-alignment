@@ -18,4 +18,12 @@ process BWA_ALIGN_NSORT {
       ${ref} ${r1} ${r2} \\
       | samtools sort -n -@${task.cpus} -o ${sample}.${rg_id}.ns.bam -
     """
+
+    stub:
+    """
+    which bwa && bwa 2>&1 | head -3
+    which samtools && samtools --version | head -1
+    echo "ref path visible: ${ref}" && ls "${ref}"
+    touch ${sample}.${rg_id}.ns.bam
+    """
 }

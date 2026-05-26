@@ -41,6 +41,14 @@ process COMPETITIVE_ASSIGN {
 
     rm wt.bam rec.bam wt.sorted.bam rec.sorted.bam wt.calmd.bam
     """
+
+    stub:
+    """
+    which samtools && samtools --version | head -1
+    which python && python -c 'import pysam; print("pysam", pysam.__version__)'
+    echo "ref path visible: ${recoded_ref}" && ls "${recoded_ref}"
+    touch ${sample}.final.sorted.bam ${sample}.final.sorted.bam.bai ${sample}.assignment.tsv
+    """
 }
 
 
@@ -62,6 +70,12 @@ process VARIANTS {
     bcftools mpileup -f ${recoded_ref} -a AD,DP ${final_bam} \\
       | bcftools call --ploidy 1 -mv -Oz -o ${sample}.recoding_state.vcf.gz
     bcftools index ${sample}.recoding_state.vcf.gz
+    """
+
+    stub:
+    """
+    which bcftools && bcftools --version | head -1
+    touch ${sample}.recoding_state.vcf.gz ${sample}.recoding_state.vcf.gz.csi
     """
 }
 
@@ -89,6 +103,14 @@ process RECODING_LANDSCAPE {
         --sample-name ${sample} \\
         --output-dir .
     """
+
+    stub:
+    """
+    which python && python -c 'import pysam, Bio, pandas; print("imports ok")'
+    ls "${genbank}" "${ref_fasta}"
+    mkdir -p csv plots
+    touch csv/${sample}_recoding_analysis.csv
+    """
 }
 
 
@@ -108,5 +130,12 @@ process AGGREGATE_ANNDATA {
     python ${workflow.projectDir}/scripts/aggregate_anndata.py \\
         --csvs ${csvs} \\
         --output recoding_landscape.h5ad
+    """
+
+    stub:
+    """
+    which python && python -c 'import anndata; print("anndata", anndata.__version__)'
+    echo "received \$(ls *.csv 2>/dev/null | wc -l) csv(s)"
+    touch recoding_landscape.h5ad
     """
 }
