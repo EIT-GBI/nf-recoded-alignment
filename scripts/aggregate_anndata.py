@@ -38,6 +38,8 @@ def extract_well_info(sample_name):
 def main():
     parser = argparse.ArgumentParser(description='Aggregate per-sample recoding CSVs into an AnnData')
     parser.add_argument('--csvs', nargs='+', required=True, help='Per-sample CSVs (one per BAM)')
+    parser.add_argument('--metadata', help='Samplesheet CSV with a unique_id column; '
+                        'merged into obs on the sample name (= unique_id)')
     parser.add_argument('--output', required=True, help='Output .h5ad path')
     args = parser.parse_args()
 
@@ -63,6 +65,18 @@ def main():
 
     obs = pd.DataFrame([extract_well_info(s) for s in samples])
     obs.index = samples
+
+    # Merge the samplesheet metadata (sample-name-derived well is only a fallback).
+    if args.metadata:
+        meta = pd.read_csv(args.metadata, dtype=str)
+        if 'unique_id' not in meta.columns:
+            raise ValueError("--metadata must have a 'unique_id' column")
+        meta = meta.drop_duplicates('unique_id').set_index('unique_id')
+        missing = [s for s in samples if s not in meta.index]
+        if missing:
+            print(f"[WARN] {len(missing)} sample(s) not in metadata: {missing[:5]}")
+        obs = obs.join(meta, how='left')  # obs.index (unique_id) <- meta.index
+        print(f"Merged metadata columns: {list(meta.columns)}")
 
     var = pd.DataFrame({'position': positions})
     var.index = [f'codon_{p}' for p in positions]

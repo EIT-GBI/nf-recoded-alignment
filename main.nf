@@ -8,6 +8,17 @@
 
 nextflow.enable.dsl = 2
 
+// Resolve exactly one FASTQ for a glob; fail loudly on 0 or >1 matches.
+def one_fastq(pattern, id, tag) {
+    def hits = file(pattern)
+    hits = (hits instanceof List) ? hits : [hits]
+    if (hits.size() != 1) {
+        error "Expected exactly 1 ${tag} FASTQ for ${id} matching ${pattern}, " +
+              "found ${hits.size()}: ${hits}"
+    }
+    return hits[0]
+}
+
 include { TRIM }                       from './modules/fastp/main.nf'
 include { BWA_ALIGN_NSORT }            from './modules/bwa_samtools/main.nf'
 include { BIGWIG }                     from './modules/bedtools/main.nf'
@@ -24,8 +35,17 @@ workflow {
     rec_ref     = file(params.alignment.recoded_ref).toAbsolutePath().toString()
     chrom_sizes = file("${params.alignment.recoded_ref}.chrom.sizes").toAbsolutePath().toString()
 
-    def in_path = file(params.alignment.fastq_dir)
-    samples = Channel.fromFilePairs("${in_path}/*_R{1,2}*.fastq*", flat: true)
+    // One row per sample across all runs. `unique_id` is the sample key end to end
+    // (fastq_prefix repeats across runs, so it alone would collide). R1/R2 are
+    // resolved separately — a single R{1,2} glob does NOT reliably order R1 first.
+    samples = Channel.fromPath(params.alignment.samplesheet)
+        .splitCsv(header: true)
+        .map { row ->
+            def base = "${row.run_path}/${row.fastq_prefix}"
+            def r1 = one_fastq("${base}_R1*.fastq*", row.unique_id, 'R1')
+            def r2 = one_fastq("${base}_R2*.fastq*", row.unique_id, 'R2')
+            tuple(row.unique_id, r1, r2)
+        }
 
     trimmed = TRIM(samples).map { sample, r1, r2, _html, _json -> tuple(sample, r1, r2) }
 
@@ -49,5 +69,7 @@ workflow {
         file(params.alignment.genbank),
         file(params.alignment.recoded_ref))
 
-    AGGREGATE_ANNDATA(recoding.csv.map { _sample, csv -> csv }.collect())
+    AGGREGATE_ANNDATA(
+        recoding.csv.map { _sample, csv -> csv }.collect(),
+        file(params.alignment.samplesheet))
 }

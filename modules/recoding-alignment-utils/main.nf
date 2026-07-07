@@ -121,6 +121,7 @@ process AGGREGATE_ANNDATA {
 
     input:
     path csvs
+    path metadata
 
     output:
     path 'recoding_landscape.h5ad'
@@ -129,13 +130,14 @@ process AGGREGATE_ANNDATA {
     """
     python ${workflow.projectDir}/scripts/aggregate_anndata.py \\
         --csvs ${csvs} \\
+        --metadata ${metadata} \\
         --output recoding_landscape.h5ad
     """
 
     stub:
     """
     which python && python -c 'import anndata; print("anndata", anndata.__version__)'
-    echo "received \$(ls *.csv 2>/dev/null | wc -l) csv(s)"
+    echo "received \$(ls *.csv 2>/dev/null | wc -l) csv(s); metadata=${metadata}"
     touch recoding_landscape.h5ad
     """
 }
