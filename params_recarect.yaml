@@ -1,0 +1,24 @@
+# RECARECT split (814 samples that matched the old `transposed` file:
+# recA/recT (DR_recA1/T3, MS_recA/T, 24.30map_DR_recA*, _pRecT*), 16CW/31aCW_rec,
+# 24.30_map, 27B, wt).
+# Run:  nextflow run main.nf -params-file params_recarect.yaml -profile cluster -resume
+#
+# All paths must be readable ON THE CLUSTER. Copy the samplesheet + refs over.
+
+bind_mounts:
+  - '/mnt/gbi-shared/home/kim-eitgbi/LMB_data/SeqArchive_2025/Seq_2025'   # FASTQ runs
+  - '/mnt/gbi-shared/home/kim-eitgbi/references'
+  - '/mnt/gbi-shared/home/kim-eitgbi/reanalysis'
+
+alignment:
+  samplesheet: '/mnt/gbi-shared/home/kim-eitgbi/reanalysis/pipeline_samplesheet_recarect.csv'
+  # recarect reference:  TODO — point these at the recarect recoded/wt/genbank files
+  recoded_ref: '/mnt/gbi-shared/home/kim-eitgbi/references/RECARECT.fasta'
+  wt_ref:      '/mnt/gbi-shared/home/kim-eitgbi/references/RECARECT_wt.fasta'
+  genbank:     '/mnt/gbi-shared/home/kim-eitgbi/references/RECARECT_recoded.gbk'
+  outdir:      '/mnt/gbi-shared/home/kim-eitgbi/reanalysis/results_recarect/'
+  threads: 8
+
+qc:
+  min_reads: 1000
+  min_quality: 20

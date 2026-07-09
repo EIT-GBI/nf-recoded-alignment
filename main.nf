@@ -41,9 +41,11 @@ workflow {
     samples = Channel.fromPath(params.alignment.samplesheet)
         .splitCsv(header: true)
         .map { row ->
+            // Real files are {fastq_prefix}_S<n>_R{1,2}_001.fastq.gz; glob the _S<n>
+            // demux index (it isn't stored) — fastq_prefix (= neb_index) is unique per run.
             def base = "${row.run_path}/${row.fastq_prefix}"
-            def r1 = one_fastq("${base}_R1*.fastq*", row.unique_id, 'R1')
-            def r2 = one_fastq("${base}_R2*.fastq*", row.unique_id, 'R2')
+            def r1 = one_fastq("${base}_S*_R1*.fastq*", row.unique_id, 'R1')
+            def r2 = one_fastq("${base}_S*_R2*.fastq*", row.unique_id, 'R2')
             tuple(row.unique_id, r1, r2)
         }
 

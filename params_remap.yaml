@@ -1,0 +1,23 @@
+# REMAP split (387 samples that matched the old `remapping_combined` file:
+# DR.2430E7.Map*, map24.30evo, r24.30_remap_plate).
+# Run:  nextflow run main.nf -params-file params_remap.yaml -profile cluster -resume
+#
+# All paths must be readable ON THE CLUSTER. Copy the samplesheet + refs over.
+
+bind_mounts:
+  - '/mnt/gbi-shared/home/kim-eitgbi/LMB_data/SeqArchive_2025/Seq_2025'   # FASTQ runs
+  - '/mnt/gbi-shared/home/kim-eitgbi/references'
+  - '/mnt/gbi-shared/home/kim-eitgbi/reanalysis'
+
+alignment:
+  samplesheet: '/mnt/gbi-shared/home/kim-eitgbi/reanalysis/pipeline_samplesheet_remap.csv'
+  # remap reference (the r24-30_27B mapping reference):
+  recoded_ref: '/mnt/gbi-shared/home/kim-eitgbi/references/MDS42_r24-30_27B_SC.fasta'
+  wt_ref:      '/mnt/gbi-shared/home/kim-eitgbi/references/MDS42_r24-30_27B_SC_wt.fasta'
+  genbank:     '/mnt/gbi-shared/home/kim-eitgbi/references/MDS42_r24-30_27B_SC_recoded.gbk'
+  outdir:      '/mnt/gbi-shared/home/kim-eitgbi/reanalysis/results_remap/'
+  threads: 8
+
+qc:
+  min_reads: 1000
+  min_quality: 20

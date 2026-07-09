@@ -16,3 +16,4 @@ alignment:
 qc:
   min_reads: 1000
   min_quality: 20
+
