@@ -63,12 +63,13 @@ def main():
     X_depth     = np.array([df['depth'].to_numpy()     for df in dfs], dtype=int)
     X_recoded   = np.array([df['recoded_codons'].to_numpy() for df in dfs], dtype=int)
 
-    obs = pd.DataFrame([extract_well_info(s) for s in samples])
-    obs.index = samples
+    obs = pd.DataFrame(index=pd.Index(samples, name='unique_id'))
+    obs['BAM_name'] = samples
 
-    # Merge the samplesheet metadata (sample-name-derived well is only a fallback).
     if args.metadata:
-        meta = pd.read_csv(args.metadata, dtype=str)
+        # Samplesheet is the source of truth for obs metadata. keep_default_na=False
+        # so blank cells become '' rather than NaN.
+        meta = pd.read_csv(args.metadata, dtype=str, keep_default_na=False)
         if 'unique_id' not in meta.columns:
             raise ValueError("--metadata must have a 'unique_id' column")
         meta = meta.drop_duplicates('unique_id').set_index('unique_id')
@@ -77,6 +78,15 @@ def main():
             print(f"[WARN] {len(missing)} sample(s) not in metadata: {missing[:5]}")
         obs = obs.join(meta, how='left')  # obs.index (unique_id) <- meta.index
         print(f"Merged metadata columns: {list(meta.columns)}")
+    else:
+        # No samplesheet: fall back to deriving the well from a trailing S<n>.
+        derived = pd.DataFrame([extract_well_info(s) for s in samples], index=samples)
+        obs = obs.join(derived)
+
+    # HDF5 can't store None/NaN in string columns (write_h5ad -> "Can't convert
+    # non-string to string"). Make obs all-string with blanks as '', dtype-agnostic
+    # (a left join, or read_csv, can leave NaN in object OR str-dtype columns).
+    obs = obs.astype(object).where(obs.notna(), '').astype(str)
 
     var = pd.DataFrame({'position': positions})
     var.index = [f'codon_{p}' for p in positions]
