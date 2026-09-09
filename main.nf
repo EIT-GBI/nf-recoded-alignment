@@ -8,7 +8,6 @@
 
 nextflow.enable.dsl = 2
 
-<<<<<<< HEAD
 // Resolve exactly one FASTQ for a glob; fail loudly on 0 or >1 matches.
 def one_fastq(pattern, id, tag) {
     def hits = file(pattern)
@@ -18,7 +17,8 @@ def one_fastq(pattern, id, tag) {
               "found ${hits.size()}: ${hits}"
     }
     return hits[0]
-=======
+}
+
 // A reference as BWA_ALIGN_NSORT wants it: tuple(fasta name, [fasta + indexes]).
 // Everything matching '<fasta>*' is picked up, i.e. the bwa/samtools indexes the
 // README asks you to build once per reference.
@@ -28,7 +28,6 @@ def ref_bundle(fasta, tag) {
     def hits = file("${f}*")
     hits = (hits instanceof List) ? hits : [hits]
     return tuple(f.name, hits)
->>>>>>> 3f6b77cce992419d8deedfa8a8002bde5fbe9ffb
 }
 
 include { TRIM }                       from './modules/fastp/main.nf'
@@ -46,19 +45,6 @@ workflow {
     rec_ref     = file(params.alignment.recoded_ref).toAbsolutePath().toString()
     chrom_sizes = file("${params.alignment.recoded_ref}.chrom.sizes").toAbsolutePath().toString()
 
-<<<<<<< HEAD
-    // One row per sample across all runs. `unique_id` is the sample key end to end
-    // (fastq_prefix repeats across runs, so it alone would collide). R1/R2 are
-    // resolved separately — a single R{1,2} glob does NOT reliably order R1 first.
-    samples = Channel.fromPath(params.alignment.samplesheet)
-        .splitCsv(header: true)
-        .map { row ->
-            def base = "${row.run_path}/${row.fastq_prefix}"
-            def r1 = one_fastq("${base}_R1*.fastq*", row.unique_id, 'R1')
-            def r2 = one_fastq("${base}_R2*.fastq*", row.unique_id, 'R2')
-            tuple(row.unique_id, r1, r2)
-        }
-=======
     // WT reference: take the one named in the params file, or build it from the
     // recoded ref + GenBank when `wt_ref` is unset (flipping every 'XXX to YYY'
     // misc_feature back to its WT codon, so coordinates stay identical). The
@@ -74,9 +60,17 @@ workflow {
         wt_ref = INDEX_REF(wt_fasta.map { f -> tuple(f.name, f) }).ref
     }
 
-    def in_path = file(params.alignment.fastq_dir)
-    samples = Channel.fromFilePairs("${in_path}/*_R{1,2}*.fastq*", flat: true)
->>>>>>> 3f6b77cce992419d8deedfa8a8002bde5fbe9ffb
+    // One row per sample across all runs. `unique_id` is the sample key end to end
+    // (fastq_prefix repeats across runs, so it alone would collide). R1/R2 are
+    // resolved separately — a single R{1,2} glob does NOT reliably order R1 first.
+    samples = Channel.fromPath(params.alignment.samplesheet)
+        .splitCsv(header: true)
+        .map { row ->
+            def base = "${row.run_path}/${row.fastq_prefix}"
+            def r1 = one_fastq("${base}_R1*.fastq*", row.unique_id, 'R1')
+            def r2 = one_fastq("${base}_R2*.fastq*", row.unique_id, 'R2')
+            tuple(row.unique_id, r1, r2)
+        }
 
     trimmed = TRIM(samples).map { sample, r1, r2, _html, _json -> tuple(sample, r1, r2) }
 
