@@ -8,3 +8,5 @@ results/
 /nextflow.log*
 /.nextflow*
 /analysis*
+__pycache__/
+.pytest_cache/
