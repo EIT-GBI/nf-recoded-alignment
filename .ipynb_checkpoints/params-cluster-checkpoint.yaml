@@ -1,0 +1,17 @@
+# Directories that get bind-mounted into every Docker container (refs, fastqs).
+bind_mounts:
+  - '/mnt/gbi-shared/home/cristian-eitgbi/data/'
+
+alignment:
+  fastq_dir: '/mnt/gbi-shared/home/cristian-eitgbi/data/20012026_VH02427_1_AACYW3_HVNGS/Analysis/fastq/'
+  recoded_ref: '/mnt/gbi-shared/home/cristian-eitgbi/data/references/mouse/MDS42_r24-30_27B_SC.fasta'
+  wt_ref: '/mnt/gbi-shared/home/cristian-eitgbi/data/references/mouse/MDS42_r24-30_27B_SC_wt.fasta'
+  outdir: '/mnt/gbi-shared/home/cristian-eitgbi/data/20012026_VH02427_1_AACYW3_HVNGS/Analysis/results/'
+  genbank: '/mnt/gbi-shared/home/cristian-eitgbi/data/references/mouse/MDS42_r24-30_27B_SC_recoded.gbk'
+  threads: 4
+
+qc:
+  min_reads: 10
+  min_quality: 20
+
+
