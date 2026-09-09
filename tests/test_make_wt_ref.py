@@ -48,16 +48,18 @@ def run_script(*args):
 
 def write_pair(tmp_path, recoded_seq, features):
     """Write a 1-contig recoded FASTA + GenBank. `features` is a list of
-    (1-based start, end, label) for misc_features."""
+    (1-based start, end, label) for misc_features; `label` may be a list to put
+    several /label qualifiers on one feature, as real gbks do."""
     fasta = tmp_path / 'rec.fasta'
     gbk = tmp_path / 'rec.gbk'
     fasta.write_text('>chr test contig\n' + recoded_seq + '\n')
 
-    feature_lines = ''.join(
-        f"     misc_feature    {s}..{e}\n"
-        f'                     /label="{label}"\n'
-        for s, e, label in features
-    )
+    parts = []
+    for s, e, label in features:
+        parts.append(f"     misc_feature    {s}..{e}\n")
+        labels = [label] if isinstance(label, str) else label
+        parts.extend(f'                     /label="{one}"\n' for one in labels)
+    feature_lines = ''.join(parts)
     seq_lines = ''.join(
         f"{i + 1:>9} {recoded_seq[i:i + 60].lower()}\n"
         for i in range(0, len(recoded_seq), 60)
@@ -117,12 +119,65 @@ def test_keeps_contig_name_length_and_coordinates(tmp_path):
     assert len(rec.seq) == len(recoded)
 
 
-def test_aborts_when_codon_length_does_not_match_the_feature_span(tmp_path):
+def test_repairs_span_truncated_at_the_end(tmp_path):
+    # As in Syn57_evo2 at 187785..187786: a 3-base codon annotated on 2 bases,
+    # where the sequence at start..start+3 is the labelled recoded codon.
     recoded = 'ATG' + 'AGC' + 'GGGTTT'
-    fasta, gbk = write_pair(tmp_path, recoded, [(4, 6, 'TC to AG')])
+    fasta, gbk = write_pair(tmp_path, recoded, [(4, 5, 'TCG to AGC')])
 
-    with pytest.raises(SystemExit, match='length mismatch'):
-        build_wt(fasta, gbk)
+    rec, stats = build_wt(fasta, gbk)
+
+    assert str(rec.seq) == 'ATG' + 'TCG' + 'GGGTTT'
+    assert (stats['flipped'], stats['repaired'], stats['skipped']) == (1, 1, 0)
+
+
+def test_repairs_span_extended_at_the_start(tmp_path):
+    # As in Syn57_evo2 at 675061..675064: the start is a base too early, so the
+    # codon sits at the feature's END. Only the end-anchored window matches.
+    recoded = 'ATG' + 'AGC' + 'GGGTTT'
+    fasta, gbk = write_pair(tmp_path, recoded, [(3, 6, 'TCG to AGC')])
+
+    rec, stats = build_wt(fasta, gbk)
+
+    assert str(rec.seq) == 'ATG' + 'TCG' + 'GGGTTT'
+    assert (stats['flipped'], stats['repaired'], stats['skipped']) == (1, 1, 0)
+
+
+def test_skips_rather_than_aborts_when_no_window_matches(tmp_path):
+    # Span disagrees with the label AND neither anchoring matches the sequence:
+    # warn and skip, so one bad annotation can't abort a whole run.
+    recoded = 'ATG' + 'TTT' + 'GGGTTT'
+    fasta, gbk = write_pair(tmp_path, recoded, [(4, 5, 'TCG to AGC')])
+
+    rec, stats = build_wt(fasta, gbk)
+
+    assert str(rec.seq) == recoded                    # untouched
+    assert (stats['flipped'], stats['repaired'], stats['skipped']) == (0, 0, 1)
+
+
+def test_uses_the_first_label_whose_codon_is_actually_present(tmp_path):
+    # Syn57_evo2 has 108 features with two alternative recoding labels. The
+    # sequence carries GCT, which is the second label's recoded codon.
+    recoded = 'ATG' + 'GCT' + 'GGGTTT'
+    fasta, gbk = write_pair(tmp_path, recoded,
+                            [(4, 6, ['GCG to GCC', 'GCG to GCT'])])
+
+    rec, stats = build_wt(fasta, gbk)
+
+    assert str(rec.seq) == 'ATG' + 'GCG' + 'GGGTTT'
+    assert (stats['flipped'], stats['skipped']) == (1, 0)
+
+
+def test_earlier_matching_label_takes_precedence(tmp_path):
+    # When more than one label matches, the first one wins -- this is what keeps
+    # the output stable for gbks whose labels overlap in opposite orientations.
+    recoded = 'ATG' + 'GCC' + 'GGGTTT'
+    fasta, gbk = write_pair(tmp_path, recoded,
+                            [(4, 6, ['GCG to GCC', 'AAA to GGC'])])
+
+    rec, _ = build_wt(fasta, gbk)
+
+    assert str(rec.seq) == 'ATG' + 'GCG' + 'GGGTTT'   # not the AAA/GGC label
 
 
 def test_aborts_when_fasta_and_genbank_lengths_differ(tmp_path):

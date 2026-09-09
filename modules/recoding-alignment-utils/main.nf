@@ -7,9 +7,11 @@ process COMPETITIVE_ASSIGN {
     publishDir "${params.alignment.outdir}/variants", mode: 'link', pattern: "*.assignment.tsv"
     publishDir "${params.alignment.outdir}/bam",      mode: 'link', pattern: "*.final.sorted.bam*"
 
+    // The recoded reference arrives as its fasta name plus every sidecar file,
+    // staged alongside; calmd reads the .fai from there.
     input:
     tuple val(sample), path(wt_ns_bam), path(rec_ns_bam)
-    val recoded_ref
+    tuple val(recoded_ref), path(rec_ref_files)
 
     output:
     tuple val(sample), val('final'),
@@ -46,7 +48,7 @@ process COMPETITIVE_ASSIGN {
     """
     which samtools && samtools --version | head -1
     which python && python -c 'import pysam; print("pysam", pysam.__version__)'
-    echo "ref path visible: ${recoded_ref}" && ls "${recoded_ref}"
+    echo "ref staged as: ${recoded_ref}" && ls -l ${recoded_ref}*
     touch ${sample}.final.sorted.bam ${sample}.final.sorted.bam.bai ${sample}.assignment.tsv
     """
 }
@@ -59,7 +61,7 @@ process VARIANTS {
 
     input:
     tuple val(sample), val(label), path(final_bam), path(final_bai)
-    val recoded_ref
+    tuple val(recoded_ref), path(rec_ref_files)
 
     output:
     tuple path("${sample}.recoding_state.vcf.gz"),
@@ -88,7 +90,7 @@ process RECODING_LANDSCAPE {
     input:
     tuple val(sample), path(bam), path(bai)
     path genbank
-    path ref_fasta
+    tuple val(ref_fasta), path(ref_fasta_files)
 
     output:
     tuple val(sample), path("csv/${sample}_recoding_analysis.csv"), emit: csv
@@ -107,7 +109,7 @@ process RECODING_LANDSCAPE {
     stub:
     """
     which python && python -c 'import pysam, Bio, pandas; print("imports ok")'
-    ls "${genbank}" "${ref_fasta}"
+    ls "${genbank}" && ls -l ${ref_fasta}*
     mkdir -p csv plots
     touch csv/${sample}_recoding_analysis.csv
     """

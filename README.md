@@ -14,16 +14,30 @@ git clone --recurse-submodules <repo>
 ## Inputs
 
 - Paired FASTQs named `*_R{1,2}*.fastq*`
-- Recoded FASTA (bwa-indexed, `samtools faidx`'d, with `<ref>.chrom.sizes`)
+- Recoded FASTA
 - Recoded GenBank with `misc_feature` codon annotations
 - WT FASTA at identical coordinates — **optional**, see below
 
-Per-reference setup, run once:
+### Reference indexes
+
+Both references need bwa indexes plus `.fai`, and the recoded one also needs
+`<ref>.chrom.sizes` (for the bigwigs). **The pipeline builds whatever is
+missing** (`INDEX_REF`) before anything else runs, and publishes the result to
+`${alignment.outdir}/reference/`.
+
+Indexing next to the reference itself is still worth doing once, so every run
+and every outdir shares one copy instead of rebuilding it:
 
 ```bash
 bwa index <ref> && samtools faidx <ref>
 cut -f1,2 <ref>.fai > <ref>.chrom.sizes
 ```
+
+Each reference reaches the tasks as staged files — the FASTA and its sidecars
+together — so a hand-indexed reference and one the pipeline indexed behave
+identically. The exception is BIGWIG's `.chrom.sizes`, which comes in as a path
+string (that process lives in a shared submodule); `nextflow.config` binds the
+work directory into the containers so that path resolves either way.
 
 ### WT reference
 
@@ -71,7 +85,8 @@ Published under `${alignment.outdir}/`:
 - `variants/*.assignment.tsv`, `*.recoding_state.vcf.gz`
 - `bigwig/*.final.bw`
 - `recoding/csv/*_recoding_analysis.csv`, `recoding/anndata/recoding_landscape.h5ad`
-- `reference/*_wt.fasta*`, `*_wt.gbk` — only when the WT reference was built here
+- `reference/` — any reference the pipeline built or indexed itself, with its
+  index files, plus `*_wt.gbk` when the WT reference was built here
 
 ## Tests
 
@@ -86,7 +101,8 @@ existing `wt_ref` byte-for-byte (skipped when those paths aren't reachable).
 ## Graph
 
 ```
-[MAKE_WT_REF → INDEX_REF]  (only when `wt_ref` is unset)
+INDEX_REF (recoded)          (only when an index is missing)
+MAKE_WT_REF → INDEX_REF (wt) (only when `wt_ref` is unset)
 
 TRIM → BWA_ALIGN_NSORT (×2: wt, rec) → COMPETITIVE_ASSIGN ┬→ BIGWIG
                                                           ├→ VARIANTS

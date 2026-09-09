@@ -10,14 +10,21 @@ identical contig name, length and coordinates and downstream alignments are
 interchangeable position-wise. The GenBank is used only for the annotations,
 and its sequence must match the FASTA's length.
 
-Sanity checks per feature:
-  - codon lengths match (len(WT) == len(recoded) == feature span)
-  - the current sequence at the feature position equals the labelled
-    recoded codon, either directly (CDS on + strand) or as its reverse
-    complement (CDS on - strand; the label is in CDS reading direction)
-Length mismatches abort the run. Sequence mismatches print a warning and
-the feature is skipped (the gbk can carry stale or overlapping recoding
-annotations); the script reports the total skip count at the end.
+Nothing is rewritten unless the sequence agrees with the label: the bases at
+the feature position must equal the labelled recoded codon, either directly
+(CDS on + strand) or as its reverse complement (CDS on - strand; the label is
+in CDS reading direction). Features that match neither are skipped with a
+warning -- a gbk can carry stale or overlapping recoding annotations -- and
+the totals are reported at the end.
+
+Two quirks of real gbks are handled:
+  - a feature may carry several 'XXX to YYY' labels (alternative recodings);
+    the first label whose recoded codon is actually present at the position is
+    the one that gets flipped
+  - a feature's span may disagree with its codon length by a base at one end.
+    The codon-sized windows anchored at the feature's start and at its end are
+    then both tried, so the sequence decides which end is off; each such repair
+    is warned about individually.
 
 Usage:
     scripts/make_wt_ref.py --recoded-fasta <recoded.fasta> \\
@@ -65,6 +72,7 @@ def build_wt(recoded_fasta, genbank):
         'flipped': 0,
         'rc': 0,            # features flipped on the reverse strand
         'skipped': 0,
+        'repaired': 0,      # span disagreed with the codon length, resolved by sequence
         'bp_changed': 0,
         'diff_dist': Counter(),   # 1/2/3 bases changed within the codon
         'swap_dist': Counter(),
@@ -73,45 +81,69 @@ def build_wt(recoded_fasta, genbank):
     for feat in gbk.features:
         if feat.type != 'misc_feature':
             continue
-        wt_codon = rec_codon = None
-        for label in feat.qualifiers.get('label', []):
-            m = LABEL_RE.match(label)
-            if m:
-                wt_codon = m.group(1).upper()
-                rec_codon = m.group(2).upper()
-                break
-        if wt_codon is None:
+        labels = [(m.group(1).upper(), m.group(2).upper())
+                  for label in feat.qualifiers.get('label', [])
+                  if (m := LABEL_RE.match(label))]
+        if not labels:
             continue
 
         start = int(feat.location.start)   # BioPython is 0-based
         end = int(feat.location.end)
         span = end - start
 
-        if len(wt_codon) != span or len(rec_codon) != span:
-            sys.exit(
-                f"[ERROR] length mismatch at {start + 1}..{end}: "
-                f"span={span}  WT='{wt_codon}' ({len(wt_codon)})  "
-                f"rec='{rec_codon}' ({len(rec_codon)})"
-            )
+        # A feature can carry several 'XXX to YYY' labels (alternative recodings);
+        # the first one whose recoded codon is actually present at the position
+        # wins. Where the annotated span disagrees with the codon length -- a
+        # handful of gbks have a feature truncated or extended by a base -- the
+        # codon-sized windows anchored at the feature's start and at its end are
+        # tried too, so the sequence itself decides which end is off.
+        hit = None
+        for wt_codon, rec_codon in labels:
+            if len(wt_codon) != len(rec_codon):
+                continue
+            size = len(rec_codon)
+            windows = [(start, start + size)] if size == span else [
+                (start, start + size), (end - size, end)]
+            rec_rc = str(Seq(rec_codon).reverse_complement())
+            for lo, hi in windows:
+                if lo < 0 or hi > len(seq):
+                    continue
+                actual = str(seq[lo:hi]).upper()
+                if actual == rec_codon:
+                    hit = (lo, hi, wt_codon, rec_codon, wt_codon, False)
+                elif actual == rec_rc:
+                    hit = (lo, hi, wt_codon, rec_codon,
+                           str(Seq(wt_codon).reverse_complement()), True)
+                if hit:
+                    break
+            if hit:
+                break
 
-        actual = str(seq[start:end]).upper()
-        rec_rc = str(Seq(rec_codon).reverse_complement())
-        if actual == rec_codon:
-            new_codon = wt_codon
-        elif actual == rec_rc:
-            new_codon = str(Seq(wt_codon).reverse_complement())
-            stats['rc'] += 1
-        else:
+        if hit is None:
+            wt_codon, rec_codon = labels[0]
             print(
-                f"[WARN] skipped {start + 1}..{end}: "
-                f"actual='{actual}', label rec='{rec_codon}' or rc='{rec_rc}'",
+                f"[WARN] skipped {start + 1}..{end}: actual="
+                f"'{str(seq[start:end]).upper()}', label rec='{rec_codon}' or "
+                f"rc='{str(Seq(rec_codon).reverse_complement())}'",
                 file=sys.stderr,
             )
             stats['skipped'] += 1
             continue
 
+        lo, hi, wt_codon, rec_codon, new_codon, is_rc = hit
+        if (lo, hi) != (start, end):
+            print(
+                f"[WARN] span {start + 1}..{end} ({span} bp) disagrees with the "
+                f"{len(rec_codon)} bp label '{wt_codon} to {rec_codon}'; used "
+                f"{lo + 1}..{hi}, where the sequence matches",
+                file=sys.stderr,
+            )
+            stats['repaired'] += 1
+        if is_rc:
+            stats['rc'] += 1
+
         for i, base in enumerate(new_codon):
-            seq[start + i] = base
+            seq[lo + i] = base
 
         diffs = sum(1 for a, b in zip(wt_codon, rec_codon) if a != b)
         stats['flipped'] += 1
@@ -139,6 +171,8 @@ def main(argv=None):
     print(f"flipped {stats['flipped']} codon features "
           f"({stats['bp_changed']} bp changed total)")
     print(f"  on + strand: {stats['flipped'] - stats['rc']}, on - strand: {stats['rc']}")
+    print(f"  of which {stats['repaired']} had a span/codon-length mismatch "
+          f"resolved from the sequence")
     print(f"skipped {stats['skipped']} features (sequence didn't match label or its RC)")
     print(f"changes-per-codon distribution: {dict(sorted(stats['diff_dist'].items()))}")
     print("top swaps (recoded -> WT):")

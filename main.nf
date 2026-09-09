@@ -19,19 +19,43 @@ def one_fastq(pattern, id, tag) {
     return hits[0]
 }
 
-// A reference as BWA_ALIGN_NSORT wants it: tuple(fasta name, [fasta + indexes]).
-// Everything matching '<fasta>*' is picked up, i.e. the bwa/samtools indexes the
-// README asks you to build once per reference.
-def ref_bundle(fasta, tag) {
+// Index files a reference needs on disk. bwa mem needs the first five; samtools
+// calmd and both mpileups need .fai; bedGraphToBigWig needs .chrom.sizes, so
+// only the recoded reference is required to have that one.
+BWA_SIDECARS = ['.amb', '.ann', '.bwt', '.pac', '.sa', '.fai']
+
+// Sidecars that aren't on disk yet. Empty list => the reference is ready to use.
+def missing_sidecars(fasta, suffixes, tag) {
     def f = file(fasta).toAbsolutePath()
     if (!f.exists()) { error "${tag} reference not found: ${f}" }
-    def hits = file("${f}*")
-    hits = (hits instanceof List) ? hits : [hits]
-    return tuple(f.name, hits)
+    return suffixes.findAll { !file("${f}${it}").exists() }
 }
 
+// A reference as the processes want it: tuple(fasta name, [fasta + sidecars]),
+// staged side by side. Everything matching '<fasta>*' is picked up, so a
+// hand-indexed reference and one INDEX_REF built here look the same downstream.
+def ref_bundle(fasta) {
+    def f = file(fasta).toAbsolutePath()
+    def hits = file("${f}*")
+    return tuple(f.name, (hits instanceof List) ? hits : [hits])
+}
+
+// The chrom.sizes out of a reference bundle, as an absolute path string: BIGWIG
+// lives in a shared submodule and takes it as a `val`, so it is not staged. That
+// path is either next to the reference or in INDEX_REF's work dir, and
+// nextflow.config binds both into the containers.
+def chrom_sizes_of(name, files) {
+    def hits = (files instanceof List) ? files : [files]
+    def hit = hits.find { it.name == "${name}.chrom.sizes" }
+    if (!hit) { error "No ${name}.chrom.sizes in the recoded reference bundle" }
+    return hit.toAbsolutePath().toString()
+}
+
+// INDEX_REF is invoked for both references, so it needs one alias per call site.
 include { TRIM }                       from './modules/fastp/main.nf'
-include { BWA_ALIGN_NSORT; INDEX_REF } from './modules/bwa_samtools/main.nf'
+include { BWA_ALIGN_NSORT;
+          INDEX_REF as INDEX_REC_REF;
+          INDEX_REF as INDEX_WT_REF }  from './modules/bwa_samtools/main.nf'
 include { BIGWIG }                     from './modules/bedtools/main.nf'
 include { COMPETITIVE_ASSIGN; VARIANTS;
           RECODING_LANDSCAPE;
@@ -42,22 +66,39 @@ workflow {
     def outdir = new File(params.alignment.outdir)
     if (!outdir.exists()) { outdir.mkdirs() }
 
-    rec_ref     = file(params.alignment.recoded_ref).toAbsolutePath().toString()
-    chrom_sizes = file("${params.alignment.recoded_ref}.chrom.sizes").toAbsolutePath().toString()
+    // Recoded reference. Index it here when any sidecar is missing, rather than
+    // failing halfway through the run; the indexes are published to
+    // ${outdir}/reference/ so the next run can pick them up from there.
+    rec_fasta = file(params.alignment.recoded_ref).toAbsolutePath()
+    rec_todo  = missing_sidecars(rec_fasta, BWA_SIDECARS + ['.chrom.sizes'], 'Recoded')
+    if (rec_todo) {
+        log.info "Indexing recoded reference ${rec_fasta.name} (missing: ${rec_todo.join(' ')})"
+        rec_ref = INDEX_REC_REF(Channel.value(tuple(rec_fasta.name, rec_fasta))).ref
+    } else {
+        rec_ref = Channel.value(ref_bundle(rec_fasta))
+    }
+    chrom_sizes = rec_ref.map { name, files -> chrom_sizes_of(name, files) }
 
     // WT reference: take the one named in the params file, or build it from the
     // recoded ref + GenBank when `wt_ref` is unset (flipping every 'XXX to YYY'
     // misc_feature back to its WT codon, so coordinates stay identical). The
     // built ref lands in ${outdir}/reference/ — pin it as `wt_ref` in the params
-    // file afterwards to skip the rebuild.
+    // file afterwards to skip the rebuild. A WT ref that is named but not
+    // indexed gets indexed here too. No .chrom.sizes needed: BIGWIG only ever
+    // runs off the recoded reference.
     if (params.alignment.wt_ref) {
-        wt_ref = Channel.value(ref_bundle(params.alignment.wt_ref, 'WT'))
+        wt_fasta_path = file(params.alignment.wt_ref).toAbsolutePath()
+        wt_todo = missing_sidecars(wt_fasta_path, BWA_SIDECARS, 'WT')
+        if (wt_todo) {
+            log.info "Indexing WT reference ${wt_fasta_path.name} (missing: ${wt_todo.join(' ')})"
+            wt_ref = INDEX_WT_REF(Channel.value(tuple(wt_fasta_path.name, wt_fasta_path))).ref
+        } else {
+            wt_ref = Channel.value(ref_bundle(wt_fasta_path))
+        }
     } else {
-        wt_name  = file(params.alignment.recoded_ref).baseName + '_wt'
-        wt_fasta = MAKE_WT_REF(file(params.alignment.recoded_ref),
-                               file(params.alignment.genbank),
-                               wt_name).fasta
-        wt_ref = INDEX_REF(wt_fasta.map { f -> tuple(f.name, f) }).ref
+        wt_name  = rec_fasta.baseName + '_wt'
+        wt_fasta = MAKE_WT_REF(rec_fasta, file(params.alignment.genbank), wt_name).fasta
+        wt_ref = INDEX_WT_REF(wt_fasta.map { f -> tuple(f.name, f) }).ref
     }
 
     // Samples come either from a samplesheet (many runs in one go) or from a
@@ -85,10 +126,10 @@ workflow {
     trimmed = TRIM(samples).map { sample, r1, r2, _html, _json -> tuple(sample, r1, r2) }
 
     // Dual alignment: same trimmed reads against both refs, name-sorted in one step.
-    def (rec_name, rec_files) = ref_bundle(params.alignment.recoded_ref, 'Recoded')
     wt_in  = trimmed.combine(wt_ref)
                     .map { sample, r1, r2, name, files -> tuple(sample, r1, r2, 'wt', name, files) }
-    rec_in = trimmed.map { sample, r1, r2 -> tuple(sample, r1, r2, 'rec', rec_name, rec_files) }
+    rec_in = trimmed.combine(rec_ref)
+                    .map { sample, r1, r2, name, files -> tuple(sample, r1, r2, 'rec', name, files) }
     aligned = BWA_ALIGN_NSORT(wt_in.mix(rec_in))
 
     wt_ns  = aligned.filter { _s, rg_id, _b -> rg_id == 'wt'  }.map { s, _rg, b -> tuple(s, b) }
@@ -104,7 +145,7 @@ workflow {
     recoding = RECODING_LANDSCAPE(
         final_bam.map { sample, _label, bam, bai -> tuple(sample, bam, bai) },
         file(params.alignment.genbank),
-        file(params.alignment.recoded_ref))
+        rec_ref)
 
     // The samplesheet doubles as obs metadata; without one, AGGREGATE_ANNDATA
     // falls back to the well info it derives from the sample names.
