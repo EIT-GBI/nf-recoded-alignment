@@ -21,8 +21,11 @@ def one_fastq(pattern, id, tag) {
 
 // Index files a reference needs on disk. bwa mem needs the first five; samtools
 // calmd and both mpileups need .fai; bedGraphToBigWig needs .chrom.sizes, so
-// only the recoded reference is required to have that one.
-BWA_SIDECARS = ['.amb', '.ann', '.bwt', '.pac', '.sa', '.fai']
+// only the recoded reference is required to have that one. A function, not a
+// top-level constant: Nextflow 26's parser rejects statements at script level.
+def bwa_sidecars() {
+    return ['.amb', '.ann', '.bwt', '.pac', '.sa', '.fai']
+}
 
 // Sidecars that aren't on disk yet. Empty list => the reference is ready to use.
 def missing_sidecars(fasta, suffixes, tag) {
@@ -70,7 +73,7 @@ workflow {
     // failing halfway through the run; the indexes are published to
     // ${outdir}/reference/ so the next run can pick them up from there.
     rec_fasta = file(params.alignment.recoded_ref).toAbsolutePath()
-    rec_todo  = missing_sidecars(rec_fasta, BWA_SIDECARS + ['.chrom.sizes'], 'Recoded')
+    rec_todo  = missing_sidecars(rec_fasta, bwa_sidecars() + ['.chrom.sizes'], 'Recoded')
     if (rec_todo) {
         log.info "Indexing recoded reference ${rec_fasta.name} (missing: ${rec_todo.join(' ')})"
         rec_ref = INDEX_REC_REF(Channel.value(tuple(rec_fasta.name, rec_fasta))).ref
@@ -88,7 +91,7 @@ workflow {
     // runs off the recoded reference.
     if (params.alignment.wt_ref) {
         wt_fasta_path = file(params.alignment.wt_ref).toAbsolutePath()
-        wt_todo = missing_sidecars(wt_fasta_path, BWA_SIDECARS, 'WT')
+        wt_todo = missing_sidecars(wt_fasta_path, bwa_sidecars(), 'WT')
         if (wt_todo) {
             log.info "Indexing WT reference ${wt_fasta_path.name} (missing: ${wt_todo.join(' ')})"
             wt_ref = INDEX_WT_REF(Channel.value(tuple(wt_fasta_path.name, wt_fasta_path))).ref
