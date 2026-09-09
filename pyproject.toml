@@ -26,3 +26,11 @@ dependencies = [
 environments = [
   { sys_platform = "darwin", python_full_version = "3.12" }
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

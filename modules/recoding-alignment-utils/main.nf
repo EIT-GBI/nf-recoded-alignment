@@ -139,3 +139,36 @@ process AGGREGATE_ANNDATA {
     touch recoding_landscape.h5ad
     """
 }
+
+
+process MAKE_WT_REF {
+    tag "$wt_name"
+    cache 'lenient'
+    // The fasta itself is published by INDEX_REF (with its indexes alongside).
+    publishDir "${params.alignment.outdir}/reference", mode: 'copy', pattern: "*.gbk"
+
+    input:
+    path recoded_fasta
+    path genbank
+    val wt_name
+
+    output:
+    path "${wt_name}.fasta", emit: fasta
+    path "${wt_name}.gbk",   emit: gbk
+
+    script:
+    """
+    python ${workflow.projectDir}/scripts/make_wt_ref.py \\
+        --recoded-fasta ${recoded_fasta} \\
+        --genbank ${genbank} \\
+        --out-fasta ${wt_name}.fasta \\
+        --out-gbk ${wt_name}.gbk
+    """
+
+    stub:
+    """
+    which python && python -c 'import Bio; print("biopython", Bio.__version__)'
+    ls "${recoded_fasta}" "${genbank}"
+    touch ${wt_name}.fasta ${wt_name}.gbk
+    """
+}
