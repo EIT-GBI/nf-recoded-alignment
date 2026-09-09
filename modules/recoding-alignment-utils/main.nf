@@ -121,23 +121,24 @@ process AGGREGATE_ANNDATA {
 
     input:
     path csvs
-    path metadata
+    path metadata      // pass [] when the run has no samplesheet
 
     output:
     path 'recoding_landscape.h5ad'
 
     script:
+    def metadata_arg = metadata ? "--metadata ${metadata}" : ''
     """
     python ${workflow.projectDir}/scripts/aggregate_anndata.py \\
         --csvs ${csvs} \\
-        --metadata ${metadata} \\
+        ${metadata_arg} \\
         --output recoding_landscape.h5ad
     """
 
     stub:
     """
     which python && python -c 'import anndata; print("anndata", anndata.__version__)'
-    echo "received \$(ls *.csv 2>/dev/null | wc -l) csv(s); metadata=${metadata}"
+    echo "received \$(ls *.csv 2>/dev/null | wc -l) csv(s); metadata=${metadata ?: '(none)'}"
     touch recoding_landscape.h5ad
     """
 }

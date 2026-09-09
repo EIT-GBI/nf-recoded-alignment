@@ -60,17 +60,27 @@ workflow {
         wt_ref = INDEX_REF(wt_fasta.map { f -> tuple(f.name, f) }).ref
     }
 
-    // One row per sample across all runs. `unique_id` is the sample key end to end
-    // (fastq_prefix repeats across runs, so it alone would collide). R1/R2 are
-    // resolved separately — a single R{1,2} glob does NOT reliably order R1 first.
-    samples = Channel.fromPath(params.alignment.samplesheet)
-        .splitCsv(header: true)
-        .map { row ->
-            def base = "${row.run_path}/${row.fastq_prefix}"
-            def r1 = one_fastq("${base}_R1*.fastq*", row.unique_id, 'R1')
-            def r2 = one_fastq("${base}_R2*.fastq*", row.unique_id, 'R2')
-            tuple(row.unique_id, r1, r2)
-        }
+    // Samples come either from a samplesheet (many runs in one go) or from a
+    // single flat FASTQ directory. Exactly one of the two must be in the params
+    // file; the samplesheet wins if somebody sets both.
+    if (params.alignment.samplesheet) {
+        // One row per sample across all runs. `unique_id` is the sample key end to
+        // end (fastq_prefix repeats across runs, so it alone would collide). R1/R2
+        // are resolved separately — one R{1,2} glob does NOT reliably order R1 first.
+        samples = Channel.fromPath(params.alignment.samplesheet)
+            .splitCsv(header: true)
+            .map { row ->
+                def base = "${row.run_path}/${row.fastq_prefix}"
+                def r1 = one_fastq("${base}_R1*.fastq*", row.unique_id, 'R1')
+                def r2 = one_fastq("${base}_R2*.fastq*", row.unique_id, 'R2')
+                tuple(row.unique_id, r1, r2)
+            }
+    } else if (params.alignment.fastq_dir) {
+        def in_path = file(params.alignment.fastq_dir)
+        samples = Channel.fromFilePairs("${in_path}/*_R{1,2}*.fastq*", flat: true)
+    } else {
+        error "Set either alignment.samplesheet or alignment.fastq_dir in the params file"
+    }
 
     trimmed = TRIM(samples).map { sample, r1, r2, _html, _json -> tuple(sample, r1, r2) }
 
@@ -96,7 +106,9 @@ workflow {
         file(params.alignment.genbank),
         file(params.alignment.recoded_ref))
 
+    // The samplesheet doubles as obs metadata; without one, AGGREGATE_ANNDATA
+    // falls back to the well info it derives from the sample names.
     AGGREGATE_ANNDATA(
         recoding.csv.map { _sample, csv -> csv }.collect(),
-        file(params.alignment.samplesheet))
+        params.alignment.samplesheet ? file(params.alignment.samplesheet) : [])
 }
