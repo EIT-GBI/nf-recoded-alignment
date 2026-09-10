@@ -126,6 +126,16 @@ workflow {
         error "Set either alignment.samplesheet or alignment.fastq_dir in the params file"
     }
 
+    // Undetermined_* is the demultiplexer's leftover bucket, not a sample. A flat
+    // fastq_dir glob picks it up like anything else, and because it holds every read
+    // that failed indexing it is large and aligns all over the genome — which is what
+    // OOM-kills RECODING_LANDSCAPE. Drop it however the sample list was built.
+    samples = samples.filter { row ->
+        def keep = !(row[0] ==~ /(?i)undetermined.*/)
+        if (!keep) { log.info "Skipping non-sample FASTQ pair: ${row[0]}" }
+        return keep
+    }
+
     trimmed = TRIM(samples).map { sample, r1, r2, _html, _json -> tuple(sample, r1, r2) }
 
     // Dual alignment: same trimmed reads against both refs, name-sorted in one step.
