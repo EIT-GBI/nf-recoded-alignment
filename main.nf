@@ -155,14 +155,18 @@ workflow {
     BIGWIG(final_bam, chrom_sizes)
     VARIANTS(final_bam, rec_ref)
 
+    // Both python scripts are staged as inputs so their content is part of the task
+    // hash: edit one and -resume re-runs those tasks instead of serving stale results.
     recoding = RECODING_LANDSCAPE(
         final_bam.map { sample, _label, bam, bai -> tuple(sample, bam, bai) },
         file(params.alignment.genbank),
-        rec_ref)
+        rec_ref,
+        file("${projectDir}/scripts/extract_recoded_codons.py"))
 
     // The samplesheet doubles as obs metadata; without one, AGGREGATE_ANNDATA
     // falls back to the well info it derives from the sample names.
     AGGREGATE_ANNDATA(
         recoding.csv.map { _sample, csv -> csv }.collect(),
-        params.alignment.samplesheet ? file(params.alignment.samplesheet) : [])
+        params.alignment.samplesheet ? file(params.alignment.samplesheet) : [],
+        file("${projectDir}/scripts/aggregate_anndata.py"))
 }

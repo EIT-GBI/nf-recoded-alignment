@@ -87,10 +87,14 @@ process RECODING_LANDSCAPE {
     cache 'lenient'
     publishDir "${params.alignment.outdir}/recoding", mode: 'link'
 
+    // `caller` is staged rather than run from projectDir on purpose: the task hash
+    // covers input FILES and the command text, so a script referenced by path never
+    // enters it and editing the caller would leave every task cached on -resume.
     input:
     tuple val(sample), path(bam), path(bai)
     path genbank
     tuple val(ref_fasta), path(ref_fasta_files)
+    path caller
 
     output:
     tuple val(sample), path("csv/${sample}_recoding_analysis.csv"), emit: csv
@@ -98,7 +102,7 @@ process RECODING_LANDSCAPE {
 
     script:
     """
-    python ${workflow.projectDir}/scripts/extract_recoded_codons.py \\
+    python ${caller} \\
         --bam ${bam} \\
         --genbank ${genbank} \\
         --ref-fasta ${ref_fasta} \\
@@ -124,6 +128,7 @@ process AGGREGATE_ANNDATA {
     input:
     path csvs
     path metadata      // pass [] when the run has no samplesheet
+    path aggregator    // staged, not run from projectDir — see RECODING_LANDSCAPE
 
     output:
     path 'recoding_landscape.h5ad'
@@ -131,7 +136,7 @@ process AGGREGATE_ANNDATA {
     script:
     def metadata_arg = metadata ? "--metadata ${metadata}" : ''
     """
-    python ${workflow.projectDir}/scripts/aggregate_anndata.py \\
+    python ${aggregator} \\
         --csvs ${csvs} \\
         ${metadata_arg} \\
         --output recoding_landscape.h5ad
