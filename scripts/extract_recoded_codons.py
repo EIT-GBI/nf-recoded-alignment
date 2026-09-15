@@ -55,7 +55,14 @@ def get_recoded_codons_and_bed(genbank_file, bed_file=None, chrom=None):
 
 
 def parse_mpileup_bases(bases, ref_base):
-    '''Parse the mpileup base string into a list of actual bases'''
+    '''Parse the mpileup base string into a list of actual bases.
+
+    Bases come back uppercase whatever the reference's case. mpileup echoes the
+    FASTA verbatim, and a soft-masked (lowercase) reference would otherwise make
+    every match-to-reference codon lowercase, so it could never equal a codon in
+    NON_RECODED and every read would be scored as recoded.
+    '''
+    ref_base = ref_base.upper()
     parsed = []
     i = 0
     while i < len(bases):
